@@ -104,7 +104,11 @@
 #define CFG_TUD_CDC               ENABLE_SERIAL
 #define CFG_TUD_MSC               0
 #define CFG_TUD_MIDI              0
+#ifdef ENABLE_WAKE_HID
+#define CFG_TUD_VENDOR            1 // routes MS OS 2.0 vendor request to tud_vendor_control_xfer_cb
+#else
 #define CFG_TUD_VENDOR            0
+#endif
 
 // HID buffer size Should be sufficient to hold ID (if any) + Data
 #define CFG_TUD_HID_EP_BUFSIZE    64

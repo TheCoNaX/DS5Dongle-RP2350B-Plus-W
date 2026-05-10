@@ -20,6 +20,23 @@
 #define WAKE_KEY_UP_SETTLE_US 10000
 #define WAKE_REQUEST_TIMEOUT_US 5000000
 
+#ifdef WAKE_DEBUG
+#  define WAKE_DBG(fmt, ...) printf("[wake] " fmt "\n", ##__VA_ARGS__)
+static const char *wake_state_name(int s) {
+    switch (s) {
+    case 0: return "IDLE";
+    case 1: return "PENDING_PRESS";
+    case 2: return "REQUESTED";
+    case 3: return "KEY_DOWN";
+    case 4: return "KEY_UP_SENT";
+    case 5: return "DONE";
+    default: return "?";
+    }
+}
+#else
+#  define WAKE_DBG(fmt, ...) ((void)0)
+#endif
+
 typedef enum {
     WAKE_IDLE,
     WAKE_PENDING_PRESS,
@@ -50,16 +67,19 @@ void wake_init(void) {
 }
 
 extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
-    (void)remote_wakeup_en;
+    WAKE_DBG("tud_suspend_cb remote_wakeup_en=%d prev_state=%s",
+             (int)remote_wakeup_en, wake_state_name(state));
     host_suspended = true;
     if (state == WAKE_IDLE || state == WAKE_DONE) {
         state = WAKE_PENDING_PRESS;
         state_entered_us = time_us_64();
         prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
+        WAKE_DBG("-> PENDING_PRESS");
     }
 }
 
 extern "C" void tud_resume_cb(void) {
+    WAKE_DBG("tud_resume_cb state=%s", wake_state_name(state));
     host_suspended = false;
     host_resumed_event = true;
 }
@@ -97,12 +117,24 @@ void wake_on_bt_input(const uint8_t *hid_input, uint16_t len) {
     critical_section_exit(&wake_cs);
 
     if (changed && armable) {
-        if (tud_remote_wakeup()) {
+        const bool ok = tud_remote_wakeup();
+        if (ok) {
             critical_section_enter_blocking(&wake_cs);
             state = WAKE_REQUESTED;
             state_entered_us = time_us_64();
             critical_section_exit(&wake_cs);
+            WAKE_DBG("button event -> REQUESTED, tud_remote_wakeup()=1");
         }
+#ifdef WAKE_DEBUG
+        else {
+            static uint64_t last_log = 0;
+            const uint64_t now = time_us_64();
+            if (now - last_log > 5000000) {
+                WAKE_DBG("button event, tud_remote_wakeup()=0 (host awake or wake disabled) -- 5s heartbeat");
+                last_log = now;
+            }
+        }
+#endif
     }
 }
 
@@ -131,14 +163,26 @@ void wake_task(void) {
             if (host_resumed_event || !host_suspended) {
                 host_resumed_event = false;
                 if (now - entered < WAKE_SETTLE_US) return;
-                if (!tud_hid_n_ready(WAKE_KBD_INSTANCE)) return;
+                if (!tud_hid_n_ready(WAKE_KBD_INSTANCE)) {
+#ifdef WAKE_DEBUG
+                    static uint64_t last_log = 0;
+                    if (now - last_log > 1000000) {
+                        WAKE_DBG("REQUESTED waiting: hid_n_ready=0 (heartbeat 1Hz)");
+                        last_log = now;
+                    }
+#endif
+                    return;
+                }
                 uint8_t rpt[8] = { 0, 0, WAKE_KEYCODE_F15, 0, 0, 0, 0, 0 };
-                if (tud_hid_n_report(WAKE_KBD_INSTANCE, 0, rpt, sizeof(rpt))) {
+                const bool sent = tud_hid_n_report(WAKE_KBD_INSTANCE, 0, rpt, sizeof(rpt));
+                WAKE_DBG("REQUESTED: sent keydown 0x%02X -> %d", WAKE_KEYCODE_F15, (int)sent);
+                if (sent) {
                     critical_section_enter_blocking(&wake_cs);
                     enter_state(WAKE_KEY_DOWN);
                     critical_section_exit(&wake_cs);
                 }
             } else if (now - entered > WAKE_REQUEST_TIMEOUT_US) {
+                WAKE_DBG("REQUESTED timeout 5s -> DONE (host never resumed)");
                 critical_section_enter_blocking(&wake_cs);
                 enter_state(WAKE_DONE);
                 critical_section_exit(&wake_cs);
@@ -148,9 +192,20 @@ void wake_task(void) {
 
         case WAKE_KEY_DOWN: {
             if (now - entered < WAKE_KEY_HOLD_US) return;
-            if (!tud_hid_n_ready(WAKE_KBD_INSTANCE)) return;
+            if (!tud_hid_n_ready(WAKE_KBD_INSTANCE)) {
+#ifdef WAKE_DEBUG
+                static uint64_t last_log = 0;
+                if (now - last_log > 1000000) {
+                    WAKE_DBG("KEY_DOWN waiting: hid_n_ready=0 (heartbeat 1Hz)");
+                    last_log = now;
+                }
+#endif
+                return;
+            }
             uint8_t up[8] = { 0 };
-            if (tud_hid_n_report(WAKE_KBD_INSTANCE, 0, up, sizeof(up))) {
+            const bool sent = tud_hid_n_report(WAKE_KBD_INSTANCE, 0, up, sizeof(up));
+            WAKE_DBG("KEY_DOWN: sent keyup -> %d", (int)sent);
+            if (sent) {
                 critical_section_enter_blocking(&wake_cs);
                 enter_state(WAKE_KEY_UP_SENT);
                 critical_section_exit(&wake_cs);
@@ -160,6 +215,7 @@ void wake_task(void) {
 
         case WAKE_KEY_UP_SENT: {
             if (now - entered < WAKE_KEY_UP_SETTLE_US) return;
+            WAKE_DBG("KEY_UP_SENT settle done -> DONE");
             critical_section_enter_blocking(&wake_cs);
             enter_state(WAKE_DONE);
             critical_section_exit(&wake_cs);

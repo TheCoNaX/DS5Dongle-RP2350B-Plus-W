@@ -111,6 +111,13 @@ if(ENABLE_WAKE_HID)
     )
 endif()
 
+option(WAKE_DEBUG "Print wake-FSM transitions to UART (developer use)" OFF)
+if(WAKE_DEBUG)
+    target_compile_definitions(ds5-bridge PRIVATE
+            WAKE_DEBUG
+    )
+endif()
+
 pico_set_program_name(ds5-bridge "ds5-bridge")
 pico_set_program_version(ds5-bridge "0.5.3")
 

@@ -91,7 +91,11 @@ tusb_desc_device_t desc_device =
 {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
+#ifdef ENABLE_WAKE_HID
+    .bcdUSB = 0x0210, // USB 2.1 -- required so the host requests BOS (carries our MS OS 2.0 descriptor)
+#else
     .bcdUSB = 0x0200,
+#endif
 
     // Use Interface Association Descriptor (IAD) for Audio
     // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
@@ -942,3 +946,96 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 
     return _desc_str;
 }
+
+#ifdef ENABLE_WAKE_HID
+//--------------------------------------------------------------------+
+// Microsoft OS 2.0 descriptors (carried via BOS).
+//
+// Why this is here: the dongle is a composite device with USB Audio Class
+// interfaces. By default Windows audio engine policy keeps USB audio devices
+// at D0 even during system S3, blocking selective-suspend for the whole
+// composite. Without selective-suspend the device never enters USB suspend,
+// so tud_remote_wakeup() never works -- breaking wake-on-PS.
+//
+// MS OS 2.0 lets us tell Windows "yes, please selective-suspend this audio
+// function": we set the registry property "SelectiveSuspendEnabled" = 1 on
+// the audio function (interface 0). This causes Windows to write
+//   HKLM\SYSTEM\CurrentControlSet\Enum\USB\<VID&PID>\<instance>
+//        \Device Parameters\SelectiveSuspendEnabled = 1
+// at enumeration time, opting our audio function in to selective suspend
+// without breaking haptics.
+//
+// Reference: "Microsoft OS 2.0 Descriptors Specification".
+//--------------------------------------------------------------------+
+
+#define MS_OS_20_VENDOR_CODE 0x01
+
+// Total length of the MS OS 2.0 descriptor set:
+//   Set Header (10) + Config Subset (8) + Function Subset (8) +
+//   Registry Property Feature (10 fixed + 48 name + 4 data = 62) = 88 bytes.
+// Used in BOS platform capability descriptor; verified by static_assert below.
+#define MS_OS_20_DESC_LEN    88
+
+#define BOS_TOTAL_LEN        (TUD_BOS_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
+
+uint8_t const desc_bos[] = {
+    // BOS header
+    TUD_BOS_DESCRIPTOR(BOS_TOTAL_LEN, 1),
+    // Platform capability: MS OS 2.0
+    TUD_BOS_MS_OS_20_DESCRIPTOR(MS_OS_20_DESC_LEN, MS_OS_20_VENDOR_CODE)
+};
+
+uint8_t const *tud_descriptor_bos_cb(void) {
+    return desc_bos;
+}
+
+uint8_t const desc_ms_os_20[] = {
+    // --- Set Header (10 bytes) ---
+    U16_TO_U8S_LE(0x000A),                                    // wLength
+    U16_TO_U8S_LE(MS_OS_20_SET_HEADER_DESCRIPTOR),            // wDescriptorType
+    U32_TO_U8S_LE(0x06030000),                                // dwWindowsVersion = Win 8.1+
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN),                         // wTotalLength
+
+    // --- Configuration Subset (8 bytes) ---
+    U16_TO_U8S_LE(0x0008),                                    // wLength
+    U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_CONFIGURATION),      // wDescriptorType
+    0x00,                                                     // bConfigurationValue (config index, 0)
+    0x00,                                                     // bReserved
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN - 0x0A),                  // wTotalLength of this subset
+
+    // --- Function Subset for the Audio function (8 bytes) ---
+    // Audio Control is interface 0; AudioStreaming OUT/IN are 1/2 -- this
+    // subset covers all three because they belong to the same function.
+    U16_TO_U8S_LE(0x0008),                                    // wLength
+    U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION),           // wDescriptorType
+    0x00,                                                     // bFirstInterface (audio control)
+    0x00,                                                     // bReserved
+    U16_TO_U8S_LE(MS_OS_20_DESC_LEN - 0x0A - 0x08),           // wSubsetLength
+
+    // --- Feature: Registry Property "SelectiveSuspendEnabled" = 1 (62 bytes) ---
+    U16_TO_U8S_LE(0x003E),                                    // wLength = 62
+    U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY),             // wDescriptorType
+    U16_TO_U8S_LE(0x0004),                                    // wPropertyDataType = REG_DWORD_LITTLE_ENDIAN
+    U16_TO_U8S_LE(48),                                        // wPropertyNameLength = 48 bytes (24 UTF-16 chars)
+    // PropertyName "SelectiveSuspendEnabled\0" UTF-16LE (48 bytes)
+    'S',0, 'e',0, 'l',0, 'e',0, 'c',0, 't',0, 'i',0, 'v',0,
+    'e',0, 'S',0, 'u',0, 's',0, 'p',0, 'e',0, 'n',0, 'd',0,
+    'E',0, 'n',0, 'a',0, 'b',0, 'l',0, 'e',0, 'd',0,  0,0,
+    U16_TO_U8S_LE(0x0004),                                    // wPropertyDataLength = 4 bytes
+    U32_TO_U8S_LE(0x00000001),                                // PropertyData = 1 (enabled)
+};
+TU_VERIFY_STATIC(sizeof(desc_ms_os_20) == MS_OS_20_DESC_LEN, "MS OS 2.0 descriptor length mismatch");
+
+// Vendor-class control transfer hook. Windows reads BOS, sees the MS OS 2.0
+// platform capability, then issues this vendor request to fetch the
+// descriptor set itself.
+bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
+    if (stage != CONTROL_STAGE_SETUP) return true;
+    if (request->bmRequestType_bit.type != TUSB_REQ_TYPE_VENDOR) return false;
+    if (request->bRequest == MS_OS_20_VENDOR_CODE && request->wIndex == 7) {
+        // wIndex == 7 -> MS_OS_20_DESCRIPTOR_INDEX
+        return tud_control_xfer(rhport, request, (void *)(uintptr_t)desc_ms_os_20, sizeof(desc_ms_os_20));
+    }
+    return false;
+}
+#endif // ENABLE_WAKE_HID
