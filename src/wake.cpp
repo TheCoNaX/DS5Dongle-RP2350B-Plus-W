@@ -8,8 +8,8 @@
 
 #include <cstdio>
 #include <cstring>
-
 #include "tusb.h"
+#include "device/dcd.h"
 #include "pico/sync.h"
 #include "pico/time.h"
 
@@ -76,17 +76,26 @@ extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
     WAKE_DBG("tud_suspend_cb remote_wakeup_en=%d prev_state=%s",
              (int)remote_wakeup_en, wake_state_name(state));
     host_suspended = true;
-    if (state == WAKE_IDLE || state == WAKE_DONE) {
-        state = WAKE_PENDING_PRESS;
-        state_entered_us = time_us_64();
-        prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
-        key_attempts = 0;
-        WAKE_DBG("-> PENDING_PRESS");
-    }
+    host_resumed_event = false;
+    
+    // Unconditionally re-arm on suspend. If a previous wake attempt hung
+    // (e.g. Linux ignored a keystroke and left the endpoint busy forever),
+    // we must abort and reset so the NEXT wake attempt can trigger.
+    state = WAKE_PENDING_PRESS;
+    state_entered_us = time_us_64();
+    prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
+    key_attempts = 0;
+    WAKE_DBG("-> PENDING_PRESS");
 }
 
 extern "C" void tud_resume_cb(void) {
     WAKE_DBG("tud_resume_cb state=%s", wake_state_name(state));
+    host_suspended = false;
+    host_resumed_event = true;
+}
+
+extern "C" void tud_mount_cb(void) {
+    WAKE_DBG("tud_mount_cb state=%s", wake_state_name(state));
     host_suspended = false;
     host_resumed_event = true;
 }
@@ -124,7 +133,17 @@ void wake_on_bt_input(const uint8_t *hid_input, uint16_t len) {
     critical_section_exit(&wake_cs);
 
     if (changed && armable) {
-        const bool ok = tud_remote_wakeup();
+        bool ok = tud_remote_wakeup();
+        
+        // Linux quirk: Sometimes Linux fails to set the REMOTE_WAKEUP feature
+        // flag before the second suspend, causing TinyUSB to refuse to wake.
+        // If we are suspended but ok is false, we force the wake signal.
+        if (!ok && host_suspended) {
+            WAKE_DBG("tud_remote_wakeup()=0 but suspended. Forcing DCD wake.");
+            dcd_remote_wakeup(0);
+            ok = true;
+        }
+
         if (ok) {
             critical_section_enter_blocking(&wake_cs);
             state = WAKE_REQUESTED;
