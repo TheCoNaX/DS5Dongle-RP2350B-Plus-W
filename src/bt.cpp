@@ -19,6 +19,9 @@
 #include "state_mgr.h"
 #include "usb.h"
 #include "pico/util/queue.h"
+#if ENABLE_BATT_LED
+#include "battery_led.h"
+#endif
 
 #define MTU_CONTROL 672
 #define MTU_INTERRUPT 672
@@ -333,6 +336,11 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             hid_interrupt_cid = 0;
             feature_data.clear();
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
+#if ENABLE_BATT_LED
+            battery_led_on_disconnect();
+#endif
+            printf("[HCI] Disconnected reason=0x%02X, start inquiry\n", reason);
+            gap_inquiry_start(30);
             if (usb_is_sleep()) {
                 printf("[HCI] Disconnected reason=0x%02X, no start inquiry because usb sleep\n", reason);
             } else {
