@@ -140,9 +140,10 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
 }
 
 int main() {
-    vreg_set_voltage(VREG_VOLTAGE_1_20);
+    vreg_disable_voltage_limit();
+    vreg_set_voltage(VREG_VOLTAGE_1_60);
     sleep_ms(1000);
-    set_sys_clock_khz(320000, true);
+    set_sys_clock_khz(500000, true);
 
     board_init();
     tusb_rhport_init_t dev_init = {
