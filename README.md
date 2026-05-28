@@ -1,147 +1,159 @@
-# Pico2W DualSense 5 Bridge
+# DS5Dongle for Waveshare RP2350B-Plus-W
 
-[中文](./README.CN.md)
+> Fork of [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) adapted for the
+> [**Waveshare RP2350B-Plus-W**](https://www.waveshare.com/rp2350b-plus-w.htm) — an
+> RP2350**B** (QFN-80, 48 GPIO) board with the Raspberry Pi Radio Module 2
+> (CYW43439, Wi-Fi 4 / BT 5.2) and a **USB Type-C** connector.
 
-> Turn a Raspberry Pi Pico2W into a wireless adapter for the DualSense (DS5) controller.
+The upstream project targets the Raspberry Pi Pico 2 W (RP2350A, micro-USB).
+This fork keeps the firmware logic identical and only changes what's needed
+to run on the Waveshare board.
 
-## Overview
+## What changed vs. upstream
 
-This project enables the Raspberry Pi Pico2W to function as a Bluetooth bridge for the DualSense controller, allowing wireless connectivity with enhanced haptics support.
+| Thing | Pico 2 W (upstream) | Waveshare RP2350B-Plus-W (this fork) |
+|---|---|---|
+| MCU | RP2350**A** (30 GPIO) | RP2350**B** (48 GPIO) |
+| USB connector | micro-USB | **USB Type-C** |
+| Flash | 4 MB | 16 MB |
+| Wireless | CYW43439 on board | CYW43439 on RM2 module |
+| `WL_REG_ON` | GPIO 23 | **GPIO 36** |
+| `WL_DATA` (DOUT/DIN/IRQ) | GPIO 24 | **GPIO 37** |
+| `WL_CS` | GPIO 25 | **GPIO 38** |
+| `WL_CLOCK` | GPIO 29 | **GPIO 39** |
+| `VSYS` sense | GPIO 29 (shared with WL_CLOCK) | GPIO 46 / ADC6 |
+| User LED (firmware) | CYW43 GPIO0 (LED1) | CYW43 GPIO0 (LED1) — unchanged |
 
-## Features
+Everything is contained in three files:
 
-- 🎮 Full DualSense connectivity via Pico2W
-- 🔊 Supports HD haptics (advanced vibration feedback)
-- 📡 Wireless Bluetooth bridging
+- `boards/waveshare_rp2350b_plus_w.h` — custom Pico SDK board header
+- `CMakeLists.txt` — `WAVESHARE_RP2350B_PLUS_W` build option
+- `tools/build-windows.ps1` — `-Board waveshare` flag
 
-## Getting Started
+No firmware-side `.cpp` was touched — the existing
+`CYW43_WL_GPIO_LED_PIN`/`cyw43_arch_gpio_put` code keeps working because LED1
+on the Waveshare silkscreen is wired to CYW43 GPIO0, just like on the Pico 2 W.
 
-### Get the firmware
+## Getting the firmware
 
-You have two options:
+### Option A — pre-built `.uf2`
 
-- **Download a pre-built `.uf2`** — grab the newest
-  [Releases](../../releases) build (`ds5-bridge-*.uf2`). No tools needed.
-- **Build it yourself** — see [Build Instructions](#build-instructions)
-  below (Windows users get a one-command script).
+Check the **[Releases](../../releases)** of this fork, or the GitHub Actions
+artifacts on the `main` branch.
 
-### Flashing Firmware
+### Option B — build it yourself
 
-1. Hold the BOOTSEL button on the Pico2W
-2. Connect the Pico2W to your computer via USB
-3. The device will mount as a USB storage device
-4. Drag and drop the .uf2 firmware file onto the device
+#### Windows 11 (one command)
 
-### Pairing the Controller
-
-1. Put the DualSense controller into Bluetooth pairing mode
-2. Wait for the Pico2W to detect and connect
-3. Once connected, the device will appear on the host system
-
-***You may need to replug the Pico when the controller is in pairing mode.***
-
-## Configuration
-
-You can modify the Pico settings via the web config.
-
-- For release: https://ds5.awalol.eu.org
-- For development: https://ds5-dev.awalol.eu.org
-
-## Notes
-
-The Pico device will only be visible to the system after the controller is connected
-
-Some behaviors depend on reconnection cycles to take effect
-
-### Low-battery LED indicator
-
-When the connected DualSense reports its battery at or below 10% (and it is not charging), the Pico onboard LED switches from solid-on to a 1 Hz blink so you can see the warning at a glance. The LED returns to solid-on as soon as the controller is plugged in or its reported level rises again. The blink also fires when `disable_pico_led` is set — the warning is treated as critical and overrides the LED-off preference; the LED returns to its disabled (off) state once the battery recovers or the controller starts charging.
-
-To opt out at build time, configure with `-DENABLE_BATT_LED=OFF`. Default is ON.
-
-### Pico W Version
-
-Pico W only has haptics support, no speaker. You can enable Pico W firmware compilation with `-DPICO_W_BUILD=ON`, or download precompiled firmware from GitHub Actions.
-
-### USB Wake Feature
-
-This feature is experimental. If you need this functionality, please check out the feat/usb-wake branch to compile it, or use the precompiled firmware from GitHub Actions under that branch. The `ds5-bridge-wake.uf2` is the firmware with this feature enabled.
-
-It is recommended to read #60 and #61 before using this feature.
-
-### Community Fork
-https://github.com/MarcelineVPQ/DS5Dongle-OLED-Edition
-https://github.com/zurce/DS5Dongle-OLED
-
-## Known Issues
-
-- ⚠️ Audio may experience slight stuttering
-- ⚠️ Overclocking is required for proper performance
-
-## Performance / Overclocking
-
-Due to encoding requirements, the Pico2W must be overclocked:
-
-Current settings:
-
-- Voltage: 1.2V
-- Frequency: 320 MHz
-
-If your device fails to boot:
-
-- Increase voltage slightly or Reduce CPU frequency
-
-## Build Instructions
-
-### Windows 11 (one command, no WSL)
-
-You don't even need to clone this repo. Download just
-[`tools/build-windows.ps1`](tools/build-windows.ps1) to any folder and run
-it in **PowerShell**:
+You don't have to clone anything beforehand — just download
+[`tools/build-windows.ps1`](tools/build-windows.ps1) and run it in PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\build-windows.ps1 -Board waveshare
 ```
 
-(If you already have a checkout, run `tools\build-windows.ps1` from the
-repo root instead — it detects and uses your local checkout.)
+The script installs every prerequisite (CMake, Ninja, Python, Git, the ARM
+GNU toolchain — via `winget`, with portable downloads as fallback), clones
+this repo plus the pinned Pico SDK + TinyUSB into `%USERPROFILE%\.ds5-build`,
+builds the firmware, and drops `ds5-bridge.uf2` next to the script and on your
+Desktop. It is safe to re-run.
 
-The script installs every prerequisite (CMake, Ninja, Python, Git and the
-ARM GNU toolchain — via `winget`, falling back to portable downloads if
-`winget` is unavailable), clones the project (if not run from a checkout)
-plus the pinned Pico SDK + TinyUSB into `%USERPROFILE%\.ds5-build`, builds
-the firmware, and drops `ds5-bridge.uf2` next to the script and on your
-Desktop. It is safe to re-run; already-installed tools are skipped.
+Useful flags:
 
-Build a fork or a specific ref with `-Repo <url>` / `-Ref <branch|tag>`.
+- `-Variant debug` — adds `-DENABLE_SERIAL=ON -DENABLE_VERBOSE=ON` (USB-CDC log)
+- `-Variant wake` — adds `-DENABLE_WAKE_HID=ON` (wake-on-PS-button)
+- `-Clean` — wipe the variant build dir first
+- `-Repo <url> -Ref <branch>` — build a fork or a specific ref
 
-Build a variant with `-Variant debug` or `-Variant wake`.
+If you already have a checkout, run `tools\build-windows.ps1 -Board waveshare`
+from the repo root — it detects and uses your local checkout.
 
-### Other platforms
+#### Other platforms (manual build)
 
-To build from source manually:
+```bash
+git submodule update --init --recursive
+cmake -S . -B build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DPICO_SDK_PATH=<sdk> \
+      -DWAVESHARE_RP2350B_PLUS_W=ON
+cmake --build build --target ds5-bridge
+```
 
-1. Install the Pico SDK 2.2.0 and switch its TinyUSB submodule to tag 0.20.0
-i.e. ***Update TinyUSB in the Pico SDK to the latest version***
-2. Initialise this repo's submodules: `git submodule update --init --recursive`
-3. Configure and build with the standard Pico SDK toolchain:
-   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPICO_SDK_PATH=<sdk>`
-   then `cmake --build build --target ds5-bridge`
+Requires Pico SDK **2.2.0** with the TinyUSB submodule pinned at tag
+**0.20.0** (or newer).
 
-1. ***Update TinyUSB in the Pico SDK to the latest version***
-2. Compile using standard Pico SDK toolchain
+## Flashing
 
+1. Hold **BOOTSEL** on the Waveshare board and plug it in via USB-C.
+2. It mounts as a USB drive named `RP2350`.
+3. Drag `ds5-bridge.uf2` onto the drive — the board reboots into the firmware.
 
-## Roadmap
-- Please check out [DS5Dongle plan](https://github.com/users/awalol/projects/5)
+## Pairing the DualSense
 
-## Community
-- Join the Discord server: [Discord Server](https://discord.gg/hM4ntchGCa)
-- If you have a bug, please open an issue instead.
+1. Put the DualSense into pairing mode (hold **Create + PS** until the lightbar
+   blinks rapidly).
+2. Wait for the dongle to detect and connect.
+3. Once connected, the controller appears on the host system as a regular
+   wired DualSense.
 
-## References
+> The dongle is only visible to the OS **after** the controller has connected
+> over Bluetooth. You may have to re-plug the dongle while the controller is
+> in pairing mode if it doesn't pick up on the first try.
 
-- [rafaelvaloto/Pico_W-Dualsense](https://github.com/rafaelvaloto/Pico_W-Dualsense) — Project inspiration
-- [egormanga/SAxense](https://github.com/egormanga/SAxense) — Bluetooth Haptics POC
-- [https://controllers.fandom.com/wiki/Sony_DualSense](https://controllers.fandom.com/wiki/Sony_DualSense) - DualSense data report structure documentation
-- [Paliverse/DualSenseX](https://github.com/Paliverse/DualSenseX) — Speaker report packet
+## Features (unchanged from upstream)
+
+- 🎮 Full DualSense connectivity over Bluetooth
+- 🔊 HD haptics (advanced vibration feedback)
+- 🔉 Speaker passthrough
+- 🪫 Low-battery LED indicator (LED1 blinks at 1 Hz when battery ≤ 10 % and
+  not charging)
+
+To opt out of the battery-LED feature at build time: configure with
+`-DENABLE_BATT_LED=OFF`.
+
+### USB Wake feature (experimental)
+
+Same as upstream — enable with `-Variant wake`. See upstream issues
+[#60](https://github.com/awalol/DS5Dongle/issues/60) and
+[#61](https://github.com/awalol/DS5Dongle/issues/61) for caveats.
+
+## Web configuration
+
+You can change runtime settings via the upstream-hosted web config:
+
+- Release: https://ds5.awalol.eu.org
+- Dev: https://ds5-dev.awalol.eu.org
+
+## Overclock & power
+
+Like upstream, the Waveshare board is run at 320 MHz @ 1.20 V to keep up
+with audio encoding. If your board fails to boot, drop the frequency or
+nudge the voltage in `CMakeLists.txt` / `src/main.cpp`.
+
+## Known issues
+
+- ⚠️ Audio may experience slight stuttering (inherited from upstream)
+- ⚠️ This fork has been validated on the author's single Waveshare board;
+  please open an issue if your board behaves differently.
+
+## Staying in sync with upstream
+
+```bash
+git remote add upstream https://github.com/awalol/DS5Dongle.git   # once
+git fetch upstream
+git merge upstream/master   # or rebase
+git push
+```
+
+## Credits
+
+- [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) — original project
+- [rafaelvaloto/Pico_W-Dualsense](https://github.com/rafaelvaloto/Pico_W-Dualsense) — project inspiration
+- [egormanga/SAxense](https://github.com/egormanga/SAxense) — Bluetooth haptics PoC
+- [DualSense fandom wiki](https://controllers.fandom.com/wiki/Sony_DualSense) — DualSense report structure
+- [Paliverse/DualSenseX](https://github.com/Paliverse/DualSenseX) — speaker report packet
+- [earlephilhower/arduino-pico variant `waveshare_rp2350b_plus_w`](https://github.com/earlephilhower/arduino-pico/blob/master/variants/waveshare_rp2350b_plus_w/pins_arduino.h) — reference for the RM2 pin mapping
+
+## License
+
+Same as upstream — see [LICENSE](LICENSE).
