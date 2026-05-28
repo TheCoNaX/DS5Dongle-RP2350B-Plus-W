@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include "bt.h"
 #include "tusb.h"
 #include "device/dcd.h"
 #include "pico/sync.h"
@@ -68,6 +69,37 @@ static void enter_state(wake_state_t s) {
     state_entered_us = time_us_64();
 }
 
+static void request_host_wake(const char *reason) {
+    bool ok = tud_remote_wakeup();
+
+    // Linux quirk: Sometimes Linux fails to set the REMOTE_WAKEUP feature
+    // flag before the second suspend, causing TinyUSB to refuse to wake.
+    // If we are suspended but ok is false, we force the wake signal.
+    if (!ok && host_suspended) {
+        WAKE_DBG("%s: tud_remote_wakeup()=0 but suspended. Forcing DCD wake.", reason);
+        dcd_remote_wakeup(0);
+        ok = true;
+    }
+
+    if (ok) {
+        critical_section_enter_blocking(&wake_cs);
+        state = WAKE_REQUESTED;
+        state_entered_us = time_us_64();
+        critical_section_exit(&wake_cs);
+        WAKE_DBG("%s -> REQUESTED", reason);
+    }
+#ifdef WAKE_DEBUG
+    else {
+        static uint64_t last_log = 0;
+        const uint64_t now = time_us_64();
+        if (now - last_log > 5000000) {
+            WAKE_DBG("%s, tud_remote_wakeup()=0 (USB bus not in suspend) -- 5s heartbeat", reason);
+            last_log = now;
+        }
+    }
+#endif
+}
+
 void wake_init(void) {
     critical_section_init(&wake_cs);
 }
@@ -75,6 +107,7 @@ void wake_init(void) {
 extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
     WAKE_DBG("tud_suspend_cb remote_wakeup_en=%d prev_state=%s",
              (int)remote_wakeup_en, wake_state_name(state));
+    bt_power_off_controller();
     host_suspended = true;
     host_resumed_event = false;
     
@@ -86,6 +119,17 @@ extern "C" void tud_suspend_cb(bool remote_wakeup_en) {
     prev_b7 = 0x08; prev_b8 = 0x00; prev_b9 = 0x00;
     key_attempts = 0;
     WAKE_DBG("-> PENDING_PRESS");
+}
+
+void wake_on_bt_connect(void) {
+    critical_section_enter_blocking(&wake_cs);
+    const bool should_wake = host_suspended &&
+        (state == WAKE_IDLE || state == WAKE_DONE || state == WAKE_PENDING_PRESS);
+    critical_section_exit(&wake_cs);
+
+    if (should_wake) {
+        request_host_wake("BT reconnect while suspended");
+    }
 }
 
 extern "C" void tud_resume_cb(void) {
@@ -133,34 +177,7 @@ void wake_on_bt_input(const uint8_t *hid_input, uint16_t len) {
     critical_section_exit(&wake_cs);
 
     if (changed && armable) {
-        bool ok = tud_remote_wakeup();
-        
-        // Linux quirk: Sometimes Linux fails to set the REMOTE_WAKEUP feature
-        // flag before the second suspend, causing TinyUSB to refuse to wake.
-        // If we are suspended but ok is false, we force the wake signal.
-        if (!ok && host_suspended) {
-            WAKE_DBG("tud_remote_wakeup()=0 but suspended. Forcing DCD wake.");
-            dcd_remote_wakeup(0);
-            ok = true;
-        }
-
-        if (ok) {
-            critical_section_enter_blocking(&wake_cs);
-            state = WAKE_REQUESTED;
-            state_entered_us = time_us_64();
-            critical_section_exit(&wake_cs);
-            WAKE_DBG("button event -> REQUESTED, tud_remote_wakeup()=1");
-        }
-#ifdef WAKE_DEBUG
-        else {
-            static uint64_t last_log = 0;
-            const uint64_t now = time_us_64();
-            if (now - last_log > 5000000) {
-                WAKE_DBG("button event, tud_remote_wakeup()=0 (USB bus not in suspend) -- 5s heartbeat");
-                last_log = now;
-            }
-        }
-#endif
+        request_host_wake("button event");
     }
 }
 

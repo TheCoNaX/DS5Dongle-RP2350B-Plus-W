@@ -89,6 +89,14 @@ To build the project from source:
 1. ***Update TinyUSB in the Pico SDK to the latest version***
 2. Compile using standard Pico SDK toolchain
 
+On macOS, `tools/build-macos.sh` can prepare a repo-local Pico SDK checkout, prompt to install missing Homebrew build tools, initialize submodules, pin TinyUSB, and build the wake firmware:
+
+```sh
+tools/build-macos.sh
+```
+
+Use `tools/build-macos.sh --standard` for the non-wake firmware, `--clean` to rebuild from scratch, or `--sdk-dir <path>` to use an existing SDK checkout. When using `--sdk-dir`, the script asks before checking that SDK out to the required Pico SDK and TinyUSB versions. If Homebrew's `arm-none-eabi-gcc` formula is installed without standard C headers, the script asks to install the complete `gcc-arm-embedded` cask and points CMake at that toolchain.
+
 ## Wake-on-PS (optional)
 
 A `-DENABLE_WAKE_HID=ON` build adds a second HID interface (a boot keyboard) that injects an **F15** keypress when any controller button is pressed while the host is suspended, waking the PC from **S3 sleep**. F15 was chosen because it has no default Windows or app binding — a stray fire never inserts characters or triggers shortcuts.
