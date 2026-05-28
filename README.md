@@ -1,5 +1,9 @@
 # DS5Dongle for Waveshare RP2350B-Plus-W
 
+<p align="center">
+  <img src="docs/RP2350B-Plus-W-1.jpg" alt="Waveshare RP2350B-Plus-W" width="640">
+</p>
+
 > Fork of [awalol/DS5Dongle](https://github.com/awalol/DS5Dongle) adapted for the
 > [**Waveshare RP2350B-Plus-W**](https://www.waveshare.com/rp2350b-plus-w.htm) — an
 > RP2350**B** (QFN-80, 48 GPIO) board with the Raspberry Pi Radio Module 2
@@ -23,6 +27,15 @@ to run on the Waveshare board.
 | `WL_CLOCK` | GPIO 29 | **GPIO 39** |
 | `VSYS` sense | GPIO 29 (shared with WL_CLOCK) | GPIO 46 / ADC6 |
 | User LED (firmware) | CYW43 GPIO0 (LED1) | CYW43 GPIO0 (LED1) — unchanged |
+
+<details>
+<summary>Pin diagram (click to expand)</summary>
+
+<p align="center">
+  <img src="docs/RP2350B-Plus-W-details-inter.png" alt="RP2350B-Plus-W pinout" width="720">
+</p>
+
+</details>
 
 Everything is contained in three files:
 
