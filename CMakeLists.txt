@@ -24,9 +24,16 @@ if (EXISTS ${picoVscode})
 endif ()
 # ====================================================================================
 
+option(WAVESHARE_RP2350B_PLUS_W "Build for the Waveshare RP2350B-Plus-W (RM2 module)" OFF)
+
 if (PICO_W_BUILD)
         set(PICO_BOARD pico_w CACHE STRING "Board type")
         set(PICO_RP2350 OFF CACHE BOOL "Not using RP2350")
+elseif (WAVESHARE_RP2350B_PLUS_W)
+        # Tell the SDK where to find our custom board header
+        # (boards/waveshare_rp2350b_plus_w.h sits alongside this CMakeLists.txt).
+        list(APPEND PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
+        set(PICO_BOARD waveshare_rp2350b_plus_w CACHE STRING "Board type")
 else ()
         set(PICO_BOARD pico2_w CACHE STRING "Board type")
 endif ()

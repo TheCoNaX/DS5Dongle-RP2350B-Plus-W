@@ -47,6 +47,8 @@
 param(
     [ValidateSet('standard', 'debug', 'wake')]
     [string]$Variant = 'standard',
+    [ValidateSet('pico2w', 'waveshare')]
+    [string]$Board = 'pico2w',
     [switch]$Clean,
     # Project to build when this script is run standalone (not from inside a
     # checkout). Override to build a fork.
@@ -450,7 +452,7 @@ Invoke-GitQuiet -C $RepoRoot submodule update --init --recursive
 if ($GitExit -ne 0) { Die 'Submodule init failed (lib/WDL, lib/opus).' }
 
 # --- Configure + build -------------------------------------------------------
-$buildDir = Join-Path $RepoRoot "build\$Variant"
+$buildDir = Join-Path $RepoRoot "build\$Variant-$Board"
 if ($Clean -and (Test-Path $buildDir)) {
     Info "Cleaning $buildDir..."
     Remove-Item -Recurse -Force $buildDir
@@ -466,6 +468,7 @@ switch ($Variant) {
     'debug' { $cmakeArgs += @('-DENABLE_SERIAL=ON', '-DENABLE_VERBOSE=ON') }
     'wake'  { $cmakeArgs += @('-DENABLE_WAKE_HID=ON') }
 }
+if ($Board -eq 'waveshare') { $cmakeArgs += @('-DWAVESHARE_RP2350B_PLUS_W=ON') }
 
 Info "Configuring: cmake $($cmakeArgs -join ' ')"
 & cmake @cmakeArgs
